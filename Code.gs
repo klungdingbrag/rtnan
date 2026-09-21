@@ -818,10 +818,27 @@ function apiHandleAction(request) {
   // PUBLIC ACTIONS
   // -----------------------------------------------------------
   if (action === "health") {
+    var spreadsheetStatus = {
+      connected: false,
+      name: ""
+    };
+
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      if (ss) {
+        spreadsheetStatus.connected = !!ss.getId();
+        spreadsheetStatus.name = ss.getName();
+      }
+    } catch (healthSheetError) {
+      spreadsheetStatus.connected = false;
+    }
+
     return {
       success: true,
       service: "Kas RT API",
       status: "online",
+      backend: "online",
+      spreadsheet: spreadsheetStatus,
       timestamp: new Date().toISOString()
     };
   }
