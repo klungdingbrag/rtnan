@@ -18,7 +18,7 @@
   async function apiRequest(action, params = {}) {
     const payload = { action: action, ...params };
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const startedAt = performance.now();
 
     try {
@@ -58,7 +58,7 @@
       return json.result;
     } catch (err) {
       if (err && err.name === "AbortError") {
-        throw new Error("API timeout setelah 15 detik. Backend tidak memberi respons.");
+        throw new Error("API timeout setelah 10 detik. Backend tidak memberi respons.");
       }
       throw err;
     } finally {
@@ -136,7 +136,7 @@
   // -------------------------------------------------------------
   // SYSTEM CONNECTION MONITOR
   // -------------------------------------------------------------
-  let connectionCheckTimer = null;
+  let connectionCheckInProgress = false;
 
   function setStatusPill(id, status, label) {
     const el = document.getElementById(id);
@@ -174,6 +174,9 @@
   }
 
   async function checkBackendHealth(silent = false) {
+    if (connectionCheckInProgress) return null;
+    connectionCheckInProgress = true;
+
     setConnectionStatus("checking", "Checking...");
     setStatusPill("statusFrontend", "online", "Online");
     setStatusPill("statusApi", "checking", "Checking");
@@ -213,6 +216,8 @@
       setConnectionStatus("offline", "Backend Offline");
       if (!silent) console.error("[KAS RT] Health check gagal:", err);
       return null;
+    } finally {
+      connectionCheckInProgress = false;
     }
   }
 
@@ -227,8 +232,6 @@
     updateAuthUI();
     checkBackendHealth(true);
     loadData();
-    if (connectionCheckTimer) clearInterval(connectionCheckTimer);
-    connectionCheckTimer = setInterval(() => checkBackendHealth(true), 30000);
   });
 
   function formatRupiah(num) {
