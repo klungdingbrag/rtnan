@@ -65,12 +65,17 @@ id_log, timestamp, user_pelaksana, tipe_aksi, id_referensi, alasan_keterangan
 Langkah 1: Persiapan Spreadsheet
 Buka Google Sheets dan buat dokumen baru bernama Kas RT 001 RW 001 Dk Gajah.
 Masuk ke menu Ekstensi > Apps Script.
-Langkah 2: Penyalinan Kode
-Buat 5 berkas sesuai struktur berkas di atas.
-Salin seluruh isi skrip ke masing-masing berkas:
-File .gs untuk Setup.gs dan Code.gs.
-File .html untuk index.html, css.html, dan js.html.
-Tekan ikon Simpan semua proyek (Ctrl + S).
+Langkah 2: Backend Apps Script
+Gunakan `Code.gs` sebagai backend pada project Google Apps Script yang terhubung dengan spreadsheet.
+Fungsi business logic/database yang sudah ada tetap berada di Apps Script.
+
+Frontend tidak perlu disalin ke Apps Script. Frontend dijalankan dari GitHub Pages menggunakan:
+- `index.html`
+- `css/style.css`
+- `js/api.js`
+- `js/app.js`
+
+Pastikan URL Web App Apps Script pada `js/api.js` menunjuk ke deployment backend yang aktif.
 Langkah 3: Inisialisasi Database
 Pada menu navigasi editor Apps Script, pilih berkas Setup.gs.
 Pilih fungsi setupDatabase pada dropdown toolbar atas, lalu klik tombol Jalankan (Run).
