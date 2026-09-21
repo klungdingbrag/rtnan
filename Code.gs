@@ -1092,7 +1092,8 @@ function doGet(e) {
       // token/password. Jangan pernah mengirim login atau token melalui JSONP.
       var prefix = String(e.parameter.prefix || "");
       var jsonpAllowed = request.action === "health" ||
-                         request.action === "getDashboardData";
+                         request.action === "getDashboardData" ||
+                         request.action === "exportPdfLaporan";
 
       if (prefix && jsonpAllowed && /^[A-Za-z_$][0-9A-Za-z_$\.]*$/.test(prefix)) {
         return ContentService
