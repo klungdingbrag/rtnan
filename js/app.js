@@ -29,8 +29,12 @@
   const apiBridgePending = new Map();
 
   function isTrustedBridgeOrigin(origin) {
+    // Apps Script HTML Service runs inside its own sandboxed iframe.
+    // Pada kondisi tertentu browser melaporkan origin sandbox sebagai "null".
+    // Keamanan tetap dijaga dengan pemeriksaan event.source === iframe.contentWindow.
     return origin === "https://script.google.com" ||
-           origin === "https://script.googleusercontent.com";
+           origin === "https://script.googleusercontent.com" ||
+           origin === "null";
   }
 
   function initApiBridge() {
@@ -145,7 +149,7 @@
           type: "RTNAN_API_REQUEST",
           requestId: requestId,
           payload: payload
-        }, apiBridgeOrigin);
+        }, apiBridgeOrigin === "null" ? "*" : apiBridgeOrigin);
       } catch (err) {
         clearTimeout(timeoutId);
         apiBridgePending.delete(requestId);
