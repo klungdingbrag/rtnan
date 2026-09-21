@@ -1012,7 +1012,7 @@ function getApiBridgeHtml() {
     '          requestId: requestId,' +
     '          ok: true,' +
     '          result: result' +
-    '        }, ALLOWED_PARENT_ORIGIN);' +
+    '        }, event.origin);' +
     '      })' +
     '      .withFailureHandler(function(error) {' +
     '        event.source.postMessage({' +
@@ -1024,7 +1024,7 @@ function getApiBridgeHtml() {
     '      })' +
     '      .apiHandleAction(payload);' +
     '  });' +
-    '  window.parent.postMessage({ type: "RTNAN_API_READY" }, ALLOWED_PARENT_ORIGIN);' +
+    '  window.parent.postMessage({ type: "RTNAN_API_READY" }, "*");' +
     '})();' +
     '<\/script></body></html>';
 
