@@ -54,16 +54,11 @@
       }, 10000);
 
       apiBridgeFrame = iframe;
-      document.body.appendChild(iframe);
 
-      // onload hanya berarti dokumen iframe selesai dimuat.
-      // Kita tetap menunggu pesan RTNAN_API_READY dari bridge.
-      iframe.addEventListener("error", () => {
-        clearTimeout(timeout);
-        reject(new Error("API Bridge gagal dimuat."));
-      });
-
-      window.addEventListener("message", function onReady(event) {
+      // Pasang listener SEBELUM iframe dimasukkan ke DOM.
+      // Ini mencegah race condition: bridge bisa mengirim READY
+      // sangat cepat setelah halaman iframe selesai dibuat.
+      const onReady = function(event) {
         if (event.source !== iframe.contentWindow) return;
         if (event.data && event.data.type === "RTNAN_API_READY") {
           if (!isTrustedBridgeOrigin(event.origin)) return;
@@ -72,7 +67,18 @@
           window.removeEventListener("message", onReady);
           resolve();
         }
+      };
+
+      window.addEventListener("message", onReady);
+
+      iframe.addEventListener("error", () => {
+        clearTimeout(timeout);
+        window.removeEventListener("message", onReady);
+        reject(new Error("API Bridge gagal dimuat."));
       });
+
+      // Baru setelah listener siap, muat iframe.
+      document.body.appendChild(iframe);
     });
 
     return apiBridgeReadyPromise;
