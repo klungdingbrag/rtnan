@@ -616,20 +616,21 @@ console.info("[KAS RT] UI build: 20260921-04");
       bulanArray: selectedBulan
     };
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        btn.disabled = false;
-        btn.innerText = "Catat Pembayaran Kas";
-        closeModal("modalBayarIuran");
-        alert(res.message);
-        loadData();
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        btn.innerText = "Catat Pembayaran Kas";
-        alert("Error: " + err.message);
-      })
-      .prosesBayarIuranMultiBulan(param, state.user.username);
+    try {
+      const res = await apiRequest("prosesBayarIuranMultiBulan", {
+        token: requireToken(),
+        param: param
+      });
+      btn.disabled = false;
+      btn.innerText = "Catat Pembayaran Kas";
+      closeModal("modalBayarIuran");
+      alert(res.message || "Pembayaran iuran berhasil dicatat.");
+      await loadData();
+    } catch (err) {
+      btn.disabled = false;
+      btn.innerText = "Catat Pembayaran Kas";
+      alert("Error: " + err.message);
+    }
   }
 
   // VOID / PEMBATALAN
@@ -647,18 +648,20 @@ console.info("[KAS RT] UI build: 20260921-04");
     const idTrx = document.getElementById("voidIdTransaksi").value;
     const alasan = document.getElementById("voidAlasan").value;
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        btn.disabled = false;
-        closeModal("modalVoid");
-        alert(res.message);
-        loadData();
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        alert("Error: " + err.message);
-      })
-      .batalkanTransaksiKas(idTrx, alasan, state.user.username);
+    try {
+      const res = await apiRequest("batalkanTransaksiKas", {
+        token: requireToken(),
+        idTransaksi: idTrx,
+        alasan: alasan
+      });
+      btn.disabled = false;
+      closeModal("modalVoid");
+      alert(res.message || "Transaksi berhasil dibatalkan.");
+      await loadData();
+    } catch (err) {
+      btn.disabled = false;
+      alert("Error: " + err.message);
+    }
   }
 
   // KELOLA WARGA
@@ -696,28 +699,32 @@ console.info("[KAS RT] UI build: 20260921-04");
       status_aktif: document.getElementById("wargaStatus").value
     };
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        btn.disabled = false;
-        closeModal("modalWarga");
-        alert(res.message);
-        loadData();
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        alert("Error: " + err.message);
-      })
-      .simpanWarga(data, state.user.username);
+    try {
+      const res = await apiRequest("simpanWarga", {
+        token: requireToken(),
+        data: data
+      });
+      btn.disabled = false;
+      closeModal("modalWarga");
+      alert(res.message || "Data warga berhasil disimpan.");
+      await loadData();
+    } catch (err) {
+      btn.disabled = false;
+      alert("Error: " + err.message);
+    }
   }
 
   function hapusWargaAction(id) {
     if (confirm("Apakah Anda yakin ingin menghapus data warga ini?")) {
-      google.script.run
-        .withSuccessHandler(function(res) {
-          alert(res.message);
-          loadData();
-        })
-        .hapusWarga(id, state.user.username);
+      apiRequest("hapusWarga", {
+        token: requireToken(),
+        id_warga: id
+      }).then(function(res) {
+        alert(res.message || "Data warga berhasil dihapus.");
+        return loadData();
+      }).catch(function(err) {
+        alert("Error: " + err.message);
+      });
     }
   }
 
@@ -759,28 +766,32 @@ console.info("[KAS RT] UI build: 20260921-04");
       keterangan: document.getElementById("anggaranKeterangan").value
     };
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        btn.disabled = false;
-        closeModal("modalAnggaran");
-        alert(res.message);
-        loadData();
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        alert("Error: " + err.message);
-      })
-      .simpanAnggaran(data, state.user.username);
+    try {
+      const res = await apiRequest("simpanAnggaran", {
+        token: requireToken(),
+        data: data
+      });
+      btn.disabled = false;
+      closeModal("modalAnggaran");
+      alert(res.message || "Program anggaran berhasil disimpan.");
+      await loadData();
+    } catch (err) {
+      btn.disabled = false;
+      alert("Error: " + err.message);
+    }
   }
 
   function hapusAnggaranAction(id) {
     if (confirm("Hapus mata anggaran ini?")) {
-      google.script.run
-        .withSuccessHandler(function(res) {
-          alert(res.message);
-          loadData();
-        })
-        .hapusAnggaran(id, state.user.username);
+      apiRequest("hapusAnggaran", {
+        token: requireToken(),
+        id_program: id
+      }).then(function(res) {
+        alert(res.message || "Program anggaran berhasil dihapus.");
+        return loadData();
+      }).catch(function(err) {
+        alert("Error: " + err.message);
+      });
     }
   }
 
@@ -790,12 +801,16 @@ console.info("[KAS RT] UI build: 20260921-04");
     e.preventDefault();
     const pLama = document.getElementById("passLama").value;
     const pBaru = document.getElementById("passBaru").value;
-    google.script.run
-      .withSuccessHandler(function(res) {
-        alert(res.message);
-        if (res.success) closeModal("modalGantiPass");
-      })
-      .changePassword(state.user.username, pLama, pBaru);
+    apiRequest("changePassword", {
+      token: requireToken(),
+      oldPassword: pLama,
+      newPassword: pBaru
+    }).then(function(res) {
+      alert(res.message || "Password berhasil diperbarui.");
+      closeModal("modalGantiPass");
+    }).catch(function(err) {
+      alert("Gagal mengganti password: " + err.message);
+    });
   }
 
   function openModalTambahAdmin() { openModal("modalTambahAdmin"); }
@@ -804,12 +819,18 @@ console.info("[KAS RT] UI build: 20260921-04");
     const nama = document.getElementById("adminNamaLengkap").value;
     const u = document.getElementById("adminNewUsername").value;
     const p = document.getElementById("adminNewPassword").value;
-    google.script.run
-      .withSuccessHandler(function(res) {
-        alert(res.message);
-        if (res.success) closeModal("modalTambahAdmin");
-      })
-      .tambahAdmin(state.user.username, u, p, nama, "Admin");
+    apiRequest("tambahAdmin", {
+      token: requireToken(),
+      username: u,
+      password: p,
+      namaLengkap: nama,
+      role: "Admin"
+    }).then(function(res) {
+      alert(res.message || "Admin berhasil ditambahkan.");
+      closeModal("modalTambahAdmin");
+    }).catch(function(err) {
+      alert("Gagal menambah admin: " + err.message);
+    });
   }
 
   // -------------------------------------------------------------
@@ -845,23 +866,23 @@ console.info("[KAS RT] UI build: 20260921-04");
     closeModal("modalExportPdf");
     const loader = alert("Sedang menyusun dan mengonversi dokumen PDF, silakan tunggu beberapa detik...");
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        // Konversi Base64 ke Blob & Trigger Download Langsung di Browser
-        const byteCharacters = atob(res.base64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: "application/pdf" });
-        const link = document.createElement("a");
-        link.href = window.URL.createObjectURL(blob);
-        link.download = res.filename;
-        link.click();
-      })
-      .withFailureHandler(function(err) {
-        alert("Gagal mengunduh PDF: " + err.message);
-      })
-      .exportPdfLaporan(tipe, state.tahun);
+    apiRequest("exportPdfLaporan", {
+      tahun: state.tahun,
+      tipeLaporan: tipe
+    }).then(function(res) {
+      const byteCharacters = atob(res.data ? res.data.base64 : res.base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(blob);
+      link.download = (res.data ? res.data.filename : res.filename) || "laporan-kas-rt.pdf";
+      link.click();
+      setTimeout(() => window.URL.revokeObjectURL(link.href), 1000);
+    }).catch(function(err) {
+      alert("Gagal mengunduh PDF: " + err.message);
+    });
   }
