@@ -15,56 +15,139 @@
 
   const BULAN_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
-  async function apiRequest(action, params = {}) {
-    const payload = { action: action, ...params };
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const startedAt = performance.now();
+  // -------------------------------------------------------------
+  // DIRECT GAS BRIDGE
+  // GitHub Pages -> cross-origin iframe -> google.script.run -> GAS
+  // Tidak memakai Worker, proxy, atau fetch CORS.
+  // -------------------------------------------------------------
+  const API_BRIDGE_URL = GAS_API_URL + "?bridge=1";
+  const GITHUB_ORIGIN = "https://klungdingbrag.github.io";
 
-    try {
-      console.debug("[KAS RT API] Request:", action, payload);
-      const response = await fetch(GAS_API_URL, {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
-        },
-        body: new URLSearchParams({
-          payload: JSON.stringify(payload)
-        }),
-        signal: controller.signal
+  let apiBridgeFrame = null;
+  let apiBridgeOrigin = null;
+  let apiBridgeReadyPromise = null;
+  const apiBridgePending = new Map();
+
+  function isTrustedBridgeOrigin(origin) {
+    return origin === "https://script.google.com" ||
+           origin === "https://script.googleusercontent.com";
+  }
+
+  function initApiBridge() {
+    if (apiBridgeReadyPromise) return apiBridgeReadyPromise;
+
+    apiBridgeReadyPromise = new Promise((resolve, reject) => {
+      const iframe = document.createElement("iframe");
+      iframe.src = API_BRIDGE_URL;
+      iframe.title = "RTNAN API Bridge";
+      iframe.setAttribute("aria-hidden", "true");
+      iframe.style.position = "fixed";
+      iframe.style.width = "1px";
+      iframe.style.height = "1px";
+      iframe.style.border = "0";
+      iframe.style.opacity = "0";
+      iframe.style.pointerEvents = "none";
+      iframe.referrerPolicy = "no-referrer";
+
+      const timeout = setTimeout(() => {
+        reject(new Error("API Bridge tidak siap setelah 10 detik."));
+      }, 10000);
+
+      apiBridgeFrame = iframe;
+      document.body.appendChild(iframe);
+
+      // onload hanya berarti dokumen iframe selesai dimuat.
+      // Kita tetap menunggu pesan RTNAN_API_READY dari bridge.
+      iframe.addEventListener("error", () => {
+        clearTimeout(timeout);
+        reject(new Error("API Bridge gagal dimuat."));
       });
 
-      const rawText = await response.text();
-      if (!response.ok) {
-        throw new Error("HTTP " + response.status + " - " + (response.statusText || "Request gagal"));
-      }
+      window.addEventListener("message", function onReady(event) {
+        if (event.source !== iframe.contentWindow) return;
+        if (event.data && event.data.type === "RTNAN_API_READY") {
+          if (!isTrustedBridgeOrigin(event.origin)) return;
+          clearTimeout(timeout);
+          apiBridgeOrigin = event.origin;
+          window.removeEventListener("message", onReady);
+          resolve();
+        }
+      });
+    });
 
-      let json;
-      try {
-        json = JSON.parse(rawText);
-      } catch (parseError) {
-        throw new Error("Respons API bukan JSON. Kemungkinan endpoint/redirect/CORS bermasalah.");
-      }
-
-      if (!json || json.success !== true) {
-        throw new Error(
-          (json && (json.message || (json.result && json.result.message))) ||
-          "API request gagal."
-        );
-      }
-
-      console.debug("[KAS RT API] Success:", action, Math.round(performance.now() - startedAt) + " ms");
-      return json.result;
-    } catch (err) {
-      if (err && err.name === "AbortError") {
-        throw new Error("API timeout setelah 10 detik. Backend tidak memberi respons.");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return apiBridgeReadyPromise;
   }
+
+  function setupApiBridgeResponseListener() {
+    if (window.__rtnanBridgeListenerInstalled) return;
+    window.__rtnanBridgeListenerInstalled = true;
+
+    window.addEventListener("message", function(event) {
+      if (!apiBridgeFrame || event.source !== apiBridgeFrame.contentWindow) return;
+      if (!isTrustedBridgeOrigin(event.origin)) return;
+
+      const data = event.data || {};
+      if (data.type !== "RTNAN_API_RESPONSE") return;
+
+      const pending = apiBridgePending.get(String(data.requestId || ""));
+      if (!pending) return;
+
+      apiBridgePending.delete(String(data.requestId));
+      if (data.ok) {
+        pending.resolve(data.result);
+      } else {
+        pending.reject(new Error(data.error || "API request gagal."));
+      }
+    });
+  }
+
+  async function apiRequest(action, params = {}) {
+    setupApiBridgeResponseListener();
+    await initApiBridge();
+
+    const payload = { action: action, ...params };
+    const requestId = "req_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const startedAt = performance.now();
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        apiBridgePending.delete(requestId);
+        reject(new Error("API timeout setelah 10 detik. Bridge GAS tidak memberi respons."));
+      }, 10000);
+
+      apiBridgePending.set(requestId, {
+        resolve: (result) => {
+          clearTimeout(timeoutId);
+          console.debug("[KAS RT API] Success:", action, Math.round(performance.now() - startedAt) + " ms");
+          if (!result || result.success !== true) {
+            reject(new Error(
+              (result && (result.message || (result.result && result.result.message))) ||
+              "API request gagal."
+            ));
+            return;
+          }
+          resolve(result);
+        },
+        reject: (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        }
+      });
+
+      try {
+        apiBridgeFrame.contentWindow.postMessage({
+          type: "RTNAN_API_REQUEST",
+          requestId: requestId,
+          payload: payload
+        }, apiBridgeOrigin);
+      } catch (err) {
+        clearTimeout(timeoutId);
+        apiBridgePending.delete(requestId);
+        reject(err);
+      }
+    });
+  }
+
 
   function saveSession(result) {
     if (!result || !result.token || !result.user) {
