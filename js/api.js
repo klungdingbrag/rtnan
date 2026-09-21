@@ -299,7 +299,8 @@ function pollRelayResult(requestId) {
 async function apiRequest(action, params = {}) {
   const publicActions = new Set([
     "health",
-    "getDashboardData"
+    "getDashboardData",
+    "exportPdfLaporan"
   ]);
 
   const startedAt = performance.now();
