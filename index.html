@@ -24,6 +24,12 @@
         </div>
       </div>
 
+      <!-- SYSTEM CONNECTION STATUS -->
+      <button type="button" onclick="openConnectionStatus()" id="connectionStatusButton" class="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-semibold px-3 py-2 rounded-lg transition" title="Lihat status koneksi sistem">
+        <span id="connectionStatusDot" class="status-dot status-checking"></span>
+        <span id="connectionStatusLabel">Checking...</span>
+      </button>
+
       <!-- Quick Action & Auth Button -->
       <div class="flex items-center space-x-2.5">
         <button onclick="shareWhatsApp()" class="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-sm transition active:scale-95">
@@ -291,6 +297,35 @@
     </section>
 
   </main>
+
+  <!-- MODAL STATUS KONEKSI -->
+  <div id="modalConnectionStatus" class="modal-backdrop hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="text-lg font-bold text-slate-800">Status Koneksi Sistem</h3>
+          <p class="text-xs text-slate-500 mt-1">Memeriksa jalur GitHub Pages → API → Backend → Google Sheets.</p>
+        </div>
+        <button type="button" onclick="closeModal('modalConnectionStatus')" class="text-slate-400 hover:text-slate-700 text-lg">✕</button>
+      </div>
+      <div class="space-y-2">
+        <div class="connection-row"><span>Frontend</span><span id="statusFrontend" class="status-pill checking">Checking</span></div>
+        <div class="connection-row"><span>API Endpoint</span><span id="statusApi" class="status-pill checking">Checking</span></div>
+        <div class="connection-row"><span>Backend</span><span id="statusBackend" class="status-pill checking">Checking</span></div>
+        <div class="connection-row"><span>Google Sheets</span><span id="statusSheets" class="status-pill checking">Checking</span></div>
+        <div class="connection-row"><span>Session Admin</span><span id="statusSession" class="status-pill checking">Checking</span></div>
+      </div>
+      <div class="bg-slate-50 rounded-xl p-3 space-y-1">
+        <div class="flex justify-between text-[11px]"><span class="text-slate-500">Last check</span><b id="statusLastCheck" class="text-slate-700">-</b></div>
+        <div class="flex justify-between text-[11px]"><span class="text-slate-500">Response time</span><b id="statusResponseTime" class="text-slate-700">-</b></div>
+        <div id="statusErrorMessage" class="hidden text-[11px] text-rose-600 pt-1"></div>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="checkBackendHealth()" class="btn-primary">↻ Cek Sekarang</button>
+        <button type="button" onclick="closeModal('modalConnectionStatus')" class="btn-secondary">Tutup</button>
+      </div>
+    </div>
+  </div>
 
   <!-- FOOTER -->
   <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
