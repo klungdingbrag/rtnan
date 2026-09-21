@@ -706,3 +706,309 @@ function exportPdfLaporan(tipeLaporan, tahun) {
     base64: Utilities.base64Encode(blob.getBytes())
   };
 }
+
+
+// =============================================================
+// RT API BRIDGE - FRONTEND GITHUB -> GOOGLE APPS SCRIPT
+// =============================================================
+// Lapisan ini hanya menjadi penghubung API. Business logic yang
+// sudah ada di atas sengaja tidak diubah.
+//
+// Frontend eksternal sebaiknya mengirim POST sederhana dengan
+// field "payload" berisi JSON string. Hindari application/json
+// agar browser tidak memerlukan CORS preflight OPTIONS.
+//
+// Format request:
+// {
+//   "action": "loginAdmin",
+//   "username": "...",
+//   "password": "..."
+// }
+//
+// Untuk action admin, gunakan:
+// {
+//   "action": "namaAction",
+//   "token": "TOKEN_DARI_LOGIN",
+//   ...parameter action...
+// }
+
+var API_SESSION_PREFIX = "RT_API_SESSION_";
+var API_SESSION_TTL_SECONDS = 21600; // 6 jam
+
+function apiJsonResponse(payload) {
+  return ContentService
+    .createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function apiParseRequest(e) {
+  try {
+    if (e && e.postData && e.postData.contents) {
+      var raw = String(e.postData.contents).trim();
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch (jsonError) {
+          // Bukan JSON; lanjut ke parameter payload.
+        }
+      }
+    }
+
+    if (e && e.parameter && e.parameter.payload) {
+      return JSON.parse(String(e.parameter.payload));
+    }
+
+    if (e && e.parameter) {
+      return e.parameter;
+    }
+
+    return {};
+  } catch (err) {
+    throw new Error("Format request API tidak valid.");
+  }
+}
+
+function apiCreateSession(user) {
+  var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  var session = {
+    username: user.username,
+    id_user: user.id_user,
+    nama_lengkap: user.nama_lengkap,
+    role: user.role,
+    created_at: new Date().toISOString()
+  };
+
+  CacheService.getScriptCache().put(
+    API_SESSION_PREFIX + token,
+    JSON.stringify(session),
+    API_SESSION_TTL_SECONDS
+  );
+
+  return token;
+}
+
+function apiGetSession(token) {
+  if (!token) return null;
+
+  var raw = CacheService.getScriptCache().get(API_SESSION_PREFIX + String(token));
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function apiRequireSession(token) {
+  var session = apiGetSession(token);
+  if (!session) {
+    throw new Error("Sesi admin tidak valid atau sudah kedaluwarsa. Silakan login kembali.");
+  }
+  return session;
+}
+
+function apiLogout(token) {
+  if (token) {
+    CacheService.getScriptCache().remove(API_SESSION_PREFIX + String(token));
+  }
+  return { success: true, message: "Logout berhasil." };
+}
+
+function apiHandleAction(request) {
+  var action = String(request.action || "").trim();
+
+  if (!action) {
+    throw new Error("Parameter action wajib diisi.");
+  }
+
+  // -----------------------------------------------------------
+  // PUBLIC ACTIONS
+  // -----------------------------------------------------------
+  if (action === "health") {
+    return {
+      success: true,
+      service: "Kas RT API",
+      status: "online",
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  if (action === "loginAdmin") {
+    var loginResult = loginAdmin(
+      String(request.username || ""),
+      String(request.password || "")
+    );
+
+    if (!loginResult || !loginResult.success) {
+      return loginResult || {
+        success: false,
+        message: "Login gagal."
+      };
+    }
+
+    var token = apiCreateSession(loginResult.user);
+
+    return {
+      success: true,
+      user: loginResult.user,
+      token: token,
+      expires_in: API_SESSION_TTL_SECONDS
+    };
+  }
+
+  if (action === "logout") {
+    return apiLogout(request.token);
+  }
+
+  // Data publik tetap menggunakan mode non-admin sehingga
+  // No KK dan No HP tetap disamarkan seperti aplikasi saat ini.
+  if (action === "getDashboardData") {
+    var publicYear = request.tahun ? parseInt(request.tahun, 10) : new Date().getFullYear();
+    return {
+      success: true,
+      data: getDashboardData(publicYear, false)
+    };
+  }
+
+  // Export PDF saat ini memang menggunakan mode publik/non-admin.
+  if (action === "exportPdfLaporan") {
+    var pdfYear = request.tahun ? parseInt(request.tahun, 10) : new Date().getFullYear();
+    var pdfType = String(request.tipeLaporan || "SEMUA");
+    return {
+      success: true,
+      data: exportPdfLaporan(pdfType, pdfYear)
+    };
+  }
+
+  // -----------------------------------------------------------
+  // PROTECTED ADMIN ACTIONS
+  // -----------------------------------------------------------
+  var session = apiRequireSession(request.token);
+  var adminUser = session.username;
+
+  switch (action) {
+    case "getDashboardDataAdmin":
+      var adminYear = request.tahun ? parseInt(request.tahun, 10) : new Date().getFullYear();
+      return {
+        success: true,
+        data: getDashboardData(adminYear, true)
+      };
+
+    case "changePassword":
+      return changePassword(
+        adminUser,
+        String(request.oldPassword || ""),
+        String(request.newPassword || "")
+      );
+
+    case "tambahAdmin":
+      return tambahAdmin(
+        adminUser,
+        String(request.username || ""),
+        String(request.password || ""),
+        String(request.namaLengkap || ""),
+        String(request.role || "Admin")
+      );
+
+    case "getAdminUsers":
+      return {
+        success: true,
+        data: getAdminUsers()
+      };
+
+    case "simpanKasManual":
+      return simpanKasManual(
+        request.data || {},
+        adminUser
+      );
+
+    case "prosesBayarIuranMultiBulan":
+      return prosesBayarIuranMultiBulan(
+        request.param || {},
+        adminUser
+      );
+
+    case "batalkanTransaksiKas":
+      return batalkanTransaksiKas(
+        String(request.idTransaksi || ""),
+        String(request.alasan || ""),
+        adminUser
+      );
+
+    case "simpanWarga":
+      return simpanWarga(
+        request.data || {},
+        adminUser
+      );
+
+    case "hapusWarga":
+      return hapusWarga(
+        String(request.id_warga || ""),
+        adminUser
+      );
+
+    case "simpanAnggaran":
+      return simpanAnggaran(
+        request.data || {},
+        adminUser
+      );
+
+    case "hapusAnggaran":
+      return hapusAnggaran(
+        String(request.id_program || ""),
+        adminUser
+      );
+
+    default:
+      throw new Error("Action API tidak dikenal atau tidak diizinkan: " + action);
+  }
+}
+
+function doPost(e) {
+  try {
+    var request = apiParseRequest(e);
+    var result = apiHandleAction(request);
+
+    return apiJsonResponse({
+      success: result && result.success !== false,
+      result: result
+    });
+  } catch (err) {
+    return apiJsonResponse({
+      success: false,
+      message: err && err.message ? err.message : String(err)
+    });
+  }
+}
+
+// Mendukung request GET sederhana untuk health-check dan data publik.
+// doGet normal tetap menjalankan aplikasi GAS apabila parameter api
+// tidak diberikan.
+function doGet(e) {
+  if (e && e.parameter && e.parameter.api === "1") {
+    try {
+      var request = e.parameter.payload
+        ? JSON.parse(String(e.parameter.payload))
+        : e.parameter;
+
+      var result = apiHandleAction(request);
+
+      return apiJsonResponse({
+        success: result && result.success !== false,
+        result: result
+      });
+    } catch (err) {
+      return apiJsonResponse({
+        success: false,
+        message: err && err.message ? err.message : String(err)
+      });
+    }
+  }
+
+  var template = HtmlService.createTemplateFromFile("index");
+  return template.evaluate()
+    .setTitle("Kas RT.001 RW.001 Dk. Gajah - Desa Surorejan")
+    .addMetaTag("viewport", "width=device-width, initial-scale=1.0")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
