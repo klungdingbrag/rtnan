@@ -994,7 +994,49 @@ function doPost(e) {
 // Mendukung request GET sederhana untuk health-check dan data publik.
 // doGet normal tetap menjalankan aplikasi GAS apabila parameter api
 // tidak diberikan.
+function getApiBridgeHtml() {
+  var html = '<!doctype html><html><head><base target="_top"></head><body>' +
+    '<script>' +
+    '(function() {' +
+    '  var ALLOWED_PARENT_ORIGIN = "https://klungdingbrag.github.io";' +
+    '  window.addEventListener("message", function(event) {' +
+    '    if (event.origin !== ALLOWED_PARENT_ORIGIN) return;' +
+    '    if (!event.source || !event.data || event.data.type !== "RTNAN_API_REQUEST") return;' +
+    '    var requestId = String(event.data.requestId || "");' +
+    '    var payload = event.data.payload;' +
+    '    if (!requestId || !payload || typeof payload !== "object") return;' +
+    '    google.script.run' +
+    '      .withSuccessHandler(function(result) {' +
+    '        event.source.postMessage({' +
+    '          type: "RTNAN_API_RESPONSE",' +
+    '          requestId: requestId,' +
+    '          ok: true,' +
+    '          result: result' +
+    '        }, ALLOWED_PARENT_ORIGIN);' +
+    '      })' +
+    '      .withFailureHandler(function(error) {' +
+    '        event.source.postMessage({' +
+    '          type: "RTNAN_API_RESPONSE",' +
+    '          requestId: requestId,' +
+    '          ok: false,' +
+    '          error: error && error.message ? error.message : String(error)' +
+    '        }, ALLOWED_PARENT_ORIGIN);' +
+    '      })' +
+    '      .apiHandleAction(payload);' +
+    '  });' +
+    '  window.parent.postMessage({ type: "RTNAN_API_READY" }, ALLOWED_PARENT_ORIGIN);' +
+    '})();' +
+    '<\/script></body></html>';
+
+  return HtmlService.createHtmlOutput(html)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
 function doGet(e) {
+  if (e && e.parameter && e.parameter.bridge === "1") {
+    return getApiBridgeHtml();
+  }
+
   if (e && e.parameter && e.parameter.api === "1") {
     try {
       var request = e.parameter.payload
