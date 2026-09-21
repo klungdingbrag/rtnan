@@ -5,6 +5,8 @@
 
   const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzlkObP01zJ_Wge9TJLFcF5CNrrsMtS7SUy7t2ij7N-Udtcz3W1dnFsDG1pD3SDSq62Sg/exec";
   const SESSION_STORAGE_KEY = "KAS_RT_SESSION";
+  const APP_BUILD = "20260921-03";
+  console.info("[KAS RT] Frontend build:", APP_BUILD);
 
   let state = {
     user: null,
@@ -140,14 +142,22 @@
         clearTimeout(timer);
         cleanup();
 
-        if (!result || result.success !== true) {
+        const normalized = (
+          result &&
+          result.result &&
+          typeof result.result === "object" &&
+          result.result.success !== undefined
+        ) ? result.result : result;
+
+        if (!normalized || normalized.success !== true) {
           reject(new Error(
-            (result && (result.message || (result.result && result.result.message))) ||
+            (normalized && normalized.message) ||
+            (result && result.message) ||
             "API request gagal."
           ));
           return;
         }
-        resolve(result);
+        resolve(normalized);
       };
 
       script.onerror = function() {
