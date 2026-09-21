@@ -52,11 +52,14 @@ id_log, timestamp, user_pelaksana, tipe_aksi, id_referensi, alasan_keterangan
 
 
 📁 Struktur Berkas
-├── Setup.gs       # Script inisialisasi tabel, format header, dan akun super admin awal
-├── Code.gs        # Backend controller, routing doGet, RPC API, hashing SHA-256, PDF generator
-├── index.html     # Single Page Application UI, layout dashboard, modal interaktif
-├── css.html       # Styling responsif (Tailwind CSS CDN, font styling, status badge)
-└── js.html        # Frontend state management, AJAX google.script.run, WhatsApp & PDF trigger
+├── Setup.gs       # Script inisialisasi database dan akun super admin
+├── Code.gs        # Backend controller, API, hashing SHA-256, PDF generator
+├── index.html     # Frontend GitHub Pages
+├── css/
+│   └── style.css  # Styling frontend
+└── js/
+    ├── api.js      # Transport GitHub Pages -> Apps Script
+    └── app.js      # UI, state, rendering, modal dan event
 
 🚀 Panduan Pemasangan & Penerapan (Deployment)
 Langkah 1: Persiapan Spreadsheet
