@@ -4,7 +4,7 @@
 // File ini fokus pada UI, state, rendering, modal, dan event.
 // =============================================================
 
-const SESSION_STORAGE_KEY = "KAS_RT_SESSION";
+const SESSION_STORAGE_KEY = "KAS_RT_SESSION_V2";
 
 let state = {
   user: null,
