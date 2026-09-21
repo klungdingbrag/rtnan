@@ -974,20 +974,79 @@ function apiHandleAction(request) {
   }
 }
 
+// -------------------------------------------------------------
+// HTTP RELAY UNTUK FRONTEND GITHUB PAGES
+// Browser tidak dapat membaca response cross-origin Apps Script
+// tanpa CORS. Karena itu request admin dikirim sebagai form POST
+// ke endpoint ini, hasilnya disimpan sebentar di Script Cache,
+// lalu frontend mengambil hasilnya melalui JSONP polling.
+// Password/token tidak dimasukkan ke URL.
+// -------------------------------------------------------------
+var API_RELAY_CACHE_PREFIX = "RT_API_RELAY_";
+var API_RELAY_TTL_SECONDS = 60;
+
+function apiRelayStore(requestId, payload) {
+  if (!requestId) return;
+  CacheService.getScriptCache().put(
+    API_RELAY_CACHE_PREFIX + requestId,
+    JSON.stringify(payload),
+    API_RELAY_TTL_SECONDS
+  );
+}
+
+function apiRelayRead(requestId, consume) {
+  if (!requestId) return null;
+
+  var cache = CacheService.getScriptCache();
+  var key = API_RELAY_CACHE_PREFIX + requestId;
+  var raw = cache.get(key);
+
+  if (!raw) return null;
+
+  if (consume) {
+    cache.remove(key);
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return {
+      success: false,
+      message: "Response relay tidak valid."
+    };
+  }
+}
+
 function doPost(e) {
+  var requestId = e && e.parameter
+    ? String(e.parameter.requestId || "")
+    : "";
+
   try {
     var request = apiParseRequest(e);
     var result = apiHandleAction(request);
 
-    return apiJsonResponse({
+    var responsePayload = {
       success: result && result.success !== false,
       result: result
-    });
+    };
+
+    if (requestId) {
+      apiRelayStore(requestId, responsePayload);
+    }
+
+    return apiJsonResponse(responsePayload);
   } catch (err) {
-    return apiJsonResponse({
+    var errorPayload = {
       success: false,
       message: err && err.message ? err.message : String(err)
-    });
+    };
+
+    if (requestId) {
+      apiRelayStore(requestId, errorPayload);
+    }
+
+    return apiJsonResponse(errorPayload);
   }
 }
 
@@ -1035,6 +1094,27 @@ function getApiBridgeHtml() {
 function doGet(e) {
   if (e && e.parameter && e.parameter.bridge === "1") {
     return getApiBridgeHtml();
+  }
+
+  // Poll hasil request POST dari GitHub Pages.
+  // Response dikembalikan melalui JSONP karena endpoint Apps Script
+  // tidak menyediakan CORS header yang dapat dibaca fetch browser.
+  if (e && e.parameter && e.parameter.api === "1" && e.parameter.poll === "1") {
+    var pollPrefix = String(e.parameter.prefix || "");
+    var pollRequestId = String(e.parameter.requestId || "");
+    var pollPayload = apiRelayRead(pollRequestId, true) || {
+      success: false,
+      pending: true,
+      message: "Request masih diproses."
+    };
+
+    if (pollPrefix && /^[A-Za-z_$][0-9A-Za-z_$\.]*$/.test(pollPrefix)) {
+      return ContentService
+        .createTextOutput(pollPrefix + "(" + JSON.stringify(pollPayload) + ")")
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+
+    return apiJsonResponse(pollPayload);
   }
 
   if (e && e.parameter && e.parameter.api === "1") {
