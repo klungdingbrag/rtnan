@@ -111,7 +111,68 @@
     });
   }
 
+  function apiRequestJsonp(action, params = {}) {
+    return new Promise((resolve, reject) => {
+      const callbackName = "__rtnan_jsonp_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+      const script = document.createElement("script");
+      const query = new URLSearchParams();
+
+      query.set("api", "1");
+      query.set("prefix", callbackName);
+      query.set("payload", JSON.stringify({ action: action, ...params }));
+
+      let finished = false;
+      const cleanup = () => {
+        if (script.parentNode) script.parentNode.removeChild(script);
+        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+      };
+
+      const timer = setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        reject(new Error("JSONP timeout setelah 10 detik."));
+      }, 10000);
+
+      window[callbackName] = function(result) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        cleanup();
+
+        if (!result || result.success !== true) {
+          reject(new Error(
+            (result && (result.message || (result.result && result.result.message))) ||
+            "API request gagal."
+          ));
+          return;
+        }
+        resolve(result);
+      };
+
+      script.onerror = function() {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        cleanup();
+        reject(new Error("JSONP gagal dimuat dari Apps Script."));
+      };
+
+      script.src = GAS_API_URL + "?api=1&prefix=" +
+        encodeURIComponent(callbackName) +
+        "&payload=" + encodeURIComponent(JSON.stringify({ action: action, ...params }));
+
+      document.head.appendChild(script);
+    });
+  }
+
   async function apiRequest(action, params = {}) {
+    // Jalur langsung yang benar-benar didukung browser untuk pembacaan
+    // lintas-origin dari Apps Script: JSONP. Hanya public read-only.
+    if (action === "health" || action === "getDashboardData") {
+      return apiRequestJsonp(action, params);
+    }
+
     setupApiBridgeResponseListener();
     await initApiBridge();
 
