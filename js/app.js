@@ -1,234 +1,25 @@
 // =============================================================
-  // API CLIENT & SESSION MANAGER
-  // FASE A: Infrastruktur frontend untuk GitHub Pages -> GAS API
-  // =============================================================
+// FRONTEND STATE
+// Transport API berada di js/api.js.
+// File ini fokus pada UI, state, rendering, modal, dan event.
+// =============================================================
 
-  const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzlkObP01zJ_Wge9TJLFcF5CNrrsMtS7SUy7t2ij7N-Udtcz3W1dnFsDG1pD3SDSq62Sg/exec";
-  const SESSION_STORAGE_KEY = "KAS_RT_SESSION";
-  const APP_BUILD = "20260921-03";
-  console.info("[KAS RT] Frontend build:", APP_BUILD);
+const SESSION_STORAGE_KEY = "KAS_RT_SESSION";
 
-  let state = {
-    user: null,
-    token: null,
-    tahun: new Date().getFullYear(),
-    dashboardData: null
-  };
+let state = {
+  user: null,
+  token: null,
+  tahun: new Date().getFullYear(),
+  dashboardData: null
+};
 
-  const BULAN_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+const BULAN_NAMES = [
+  "Januari", "Februari", "Maret", "April",
+  "Mei", "Juni", "Juli", "Agustus",
+  "September", "Oktober", "November", "Desember"
+];
 
-  // -------------------------------------------------------------
-  // DIRECT GAS BRIDGE
-  // GitHub Pages -> cross-origin iframe -> google.script.run -> GAS
-  // Tidak memakai Worker, proxy, atau fetch CORS.
-  // -------------------------------------------------------------
-  const API_BRIDGE_URL = GAS_API_URL + "?bridge=1";
-  const GITHUB_ORIGIN = "https://klungdingbrag.github.io";
-
-  let apiBridgeFrame = null;
-  let apiBridgeOrigin = null;
-  let apiBridgeReadyPromise = null;
-  const apiBridgePending = new Map();
-
-  function isTrustedBridgeOrigin(origin) {
-    // Apps Script HTML Service runs inside its own sandboxed iframe.
-    // Pada kondisi tertentu browser melaporkan origin sandbox sebagai "null".
-    // Keamanan tetap dijaga dengan pemeriksaan event.source === iframe.contentWindow.
-    return origin === "https://script.google.com" ||
-           origin === "https://script.googleusercontent.com" ||
-           origin === "null";
-  }
-
-  function initApiBridge() {
-    if (apiBridgeReadyPromise) return apiBridgeReadyPromise;
-
-    apiBridgeReadyPromise = new Promise((resolve, reject) => {
-      const iframe = document.createElement("iframe");
-      iframe.src = API_BRIDGE_URL;
-      iframe.title = "RTNAN API Bridge";
-      iframe.setAttribute("aria-hidden", "true");
-      iframe.style.position = "fixed";
-      iframe.style.width = "1px";
-      iframe.style.height = "1px";
-      iframe.style.border = "0";
-      iframe.style.opacity = "0";
-      iframe.style.pointerEvents = "none";
-      iframe.referrerPolicy = "no-referrer";
-
-      const timeout = setTimeout(() => {
-        reject(new Error("API Bridge tidak siap setelah 10 detik."));
-      }, 10000);
-
-      apiBridgeFrame = iframe;
-
-      // Pasang listener SEBELUM iframe dimasukkan ke DOM.
-      // Ini mencegah race condition: bridge bisa mengirim READY
-      // sangat cepat setelah halaman iframe selesai dibuat.
-      const onReady = function(event) {
-        if (event.source !== iframe.contentWindow) return;
-        if (event.data && event.data.type === "RTNAN_API_READY") {
-          if (!isTrustedBridgeOrigin(event.origin)) return;
-          clearTimeout(timeout);
-          apiBridgeOrigin = event.origin;
-          window.removeEventListener("message", onReady);
-          resolve();
-        }
-      };
-
-      window.addEventListener("message", onReady);
-
-      iframe.addEventListener("error", () => {
-        clearTimeout(timeout);
-        window.removeEventListener("message", onReady);
-        reject(new Error("API Bridge gagal dimuat."));
-      });
-
-      // Baru setelah listener siap, muat iframe.
-      document.body.appendChild(iframe);
-    });
-
-    return apiBridgeReadyPromise;
-  }
-
-  function setupApiBridgeResponseListener() {
-    if (window.__rtnanBridgeListenerInstalled) return;
-    window.__rtnanBridgeListenerInstalled = true;
-
-    window.addEventListener("message", function(event) {
-      if (!apiBridgeFrame || event.source !== apiBridgeFrame.contentWindow) return;
-      if (!isTrustedBridgeOrigin(event.origin)) return;
-
-      const data = event.data || {};
-      if (data.type !== "RTNAN_API_RESPONSE") return;
-
-      const pending = apiBridgePending.get(String(data.requestId || ""));
-      if (!pending) return;
-
-      apiBridgePending.delete(String(data.requestId));
-      if (data.ok) {
-        pending.resolve(data.result);
-      } else {
-        pending.reject(new Error(data.error || "API request gagal."));
-      }
-    });
-  }
-
-  function apiRequestJsonp(action, params = {}) {
-    return new Promise((resolve, reject) => {
-      const callbackName = "__rtnan_jsonp_" + Date.now() + "_" + Math.random().toString(36).slice(2);
-      const script = document.createElement("script");
-      const query = new URLSearchParams();
-
-      query.set("api", "1");
-      query.set("prefix", callbackName);
-      query.set("payload", JSON.stringify({ action: action, ...params }));
-
-      let finished = false;
-      const cleanup = () => {
-        if (script.parentNode) script.parentNode.removeChild(script);
-        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
-      };
-
-      const timer = setTimeout(() => {
-        if (finished) return;
-        finished = true;
-        cleanup();
-        reject(new Error("JSONP timeout setelah 10 detik."));
-      }, 10000);
-
-      window[callbackName] = function(result) {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        cleanup();
-
-        const normalized = (
-          result &&
-          result.result &&
-          typeof result.result === "object" &&
-          result.result.success !== undefined
-        ) ? result.result : result;
-
-        if (!normalized || normalized.success !== true) {
-          reject(new Error(
-            (normalized && normalized.message) ||
-            (result && result.message) ||
-            "API request gagal."
-          ));
-          return;
-        }
-        resolve(normalized);
-      };
-
-      script.onerror = function() {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        cleanup();
-        reject(new Error("JSONP gagal dimuat dari Apps Script."));
-      };
-
-      script.src = GAS_API_URL + "?api=1&prefix=" +
-        encodeURIComponent(callbackName) +
-        "&payload=" + encodeURIComponent(JSON.stringify({ action: action, ...params }));
-
-      document.head.appendChild(script);
-    });
-  }
-
-  async function apiRequest(action, params = {}) {
-    // Jalur langsung yang benar-benar didukung browser untuk pembacaan
-    // lintas-origin dari Apps Script: JSONP. Hanya public read-only.
-    if (action === "health" || action === "getDashboardData") {
-      return apiRequestJsonp(action, params);
-    }
-
-    setupApiBridgeResponseListener();
-    await initApiBridge();
-
-    const payload = { action: action, ...params };
-    const requestId = "req_" + Date.now() + "_" + Math.random().toString(36).slice(2);
-    const startedAt = performance.now();
-
-    return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        apiBridgePending.delete(requestId);
-        reject(new Error("API timeout setelah 10 detik. Bridge GAS tidak memberi respons."));
-      }, 10000);
-
-      apiBridgePending.set(requestId, {
-        resolve: (result) => {
-          clearTimeout(timeoutId);
-          console.debug("[KAS RT API] Success:", action, Math.round(performance.now() - startedAt) + " ms");
-          if (!result || result.success !== true) {
-            reject(new Error(
-              (result && (result.message || (result.result && result.result.message))) ||
-              "API request gagal."
-            ));
-            return;
-          }
-          resolve(result);
-        },
-        reject: (err) => {
-          clearTimeout(timeoutId);
-          reject(err);
-        }
-      });
-
-      try {
-        apiBridgeFrame.contentWindow.postMessage({
-          type: "RTNAN_API_REQUEST",
-          requestId: requestId,
-          payload: payload
-        }, apiBridgeOrigin === "null" ? "*" : apiBridgeOrigin);
-      } catch (err) {
-        clearTimeout(timeoutId);
-        apiBridgePending.delete(requestId);
-        reject(err);
-      }
-    });
-  }
-
+console.info("[KAS RT] UI build: 20260921-04");
 
   function saveSession(result) {
     if (!result || !result.token || !result.user) {
