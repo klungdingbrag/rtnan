@@ -17,31 +17,53 @@
 
   async function apiRequest(action, params = {}) {
     const payload = { action: action, ...params };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const startedAt = performance.now();
 
-    const response = await fetch(GAS_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
-      },
-      body: new URLSearchParams({
-        payload: JSON.stringify(payload)
-      })
-    });
+    try {
+      console.debug("[KAS RT API] Request:", action, payload);
+      const response = await fetch(GAS_API_URL, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+        },
+        body: new URLSearchParams({
+          payload: JSON.stringify(payload)
+        }),
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      throw new Error("HTTP " + response.status + " - " + response.statusText);
+      const rawText = await response.text();
+      if (!response.ok) {
+        throw new Error("HTTP " + response.status + " - " + (response.statusText || "Request gagal"));
+      }
+
+      let json;
+      try {
+        json = JSON.parse(rawText);
+      } catch (parseError) {
+        throw new Error("Respons API bukan JSON. Kemungkinan endpoint/redirect/CORS bermasalah.");
+      }
+
+      if (!json || json.success !== true) {
+        throw new Error(
+          (json && (json.message || (json.result && json.result.message))) ||
+          "API request gagal."
+        );
+      }
+
+      console.debug("[KAS RT API] Success:", action, Math.round(performance.now() - startedAt) + " ms");
+      return json.result;
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        throw new Error("API timeout setelah 15 detik. Backend tidak memberi respons.");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const json = await response.json();
-
-    if (!json || json.success !== true) {
-      throw new Error(
-        (json && (json.message || (json.result && json.result.message))) ||
-        "API request gagal."
-      );
-    }
-
-    return json.result;
   }
 
   function saveSession(result) {
@@ -111,11 +133,102 @@
     }
   }
 
+  // -------------------------------------------------------------
+  // SYSTEM CONNECTION MONITOR
+  // -------------------------------------------------------------
+  let connectionCheckTimer = null;
+
+  function setStatusPill(id, status, label) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = "status-pill " + status;
+    el.innerText = label;
+  }
+
+  function setConnectionStatus(status, label) {
+    const dot = document.getElementById("connectionStatusDot");
+    const text = document.getElementById("connectionStatusLabel");
+    if (dot) dot.className = "status-dot status-" + status;
+    if (text) text.innerText = label;
+  }
+
+  function formatConnectionTime(date) {
+    return date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function updateConnectionDetailUI(detail) {
+    setStatusPill("statusFrontend", detail.frontend ? "online" : "offline", detail.frontend ? "Online" : "Offline");
+    setStatusPill("statusApi", detail.api ? "online" : "offline", detail.api ? "Connected" : "Offline");
+    setStatusPill("statusBackend", detail.backend ? "online" : "offline", detail.backend ? "Responding" : "Offline");
+    setStatusPill("statusSheets", detail.sheets ? "online" : "offline", detail.sheets ? "Accessible" : "Unavailable");
+    setStatusPill("statusSession", detail.session ? "online" : "offline", detail.session ? "Active" : "Not active");
+    const last = document.getElementById("statusLastCheck");
+    const rt = document.getElementById("statusResponseTime");
+    const err = document.getElementById("statusErrorMessage");
+    if (last) last.innerText = detail.checkedAt || "-";
+    if (rt) rt.innerText = detail.responseMs != null ? detail.responseMs + " ms" : "-";
+    if (err) {
+      err.innerText = detail.error || "";
+      err.classList.toggle("hidden", !detail.error);
+    }
+  }
+
+  async function checkBackendHealth(silent = false) {
+    setConnectionStatus("checking", "Checking...");
+    setStatusPill("statusFrontend", "online", "Online");
+    setStatusPill("statusApi", "checking", "Checking");
+    setStatusPill("statusBackend", "checking", "Checking");
+    setStatusPill("statusSheets", "checking", "Checking");
+    setStatusPill("statusSession", state.token ? "online" : "offline", state.token ? "Active" : "Not active");
+
+    const startedAt = performance.now();
+    try {
+      const result = await apiRequest("health");
+      const responseMs = Math.round(performance.now() - startedAt);
+      const sheetsOk = !!(result && result.spreadsheet && result.spreadsheet.connected);
+      updateConnectionDetailUI({
+        frontend: true,
+        api: true,
+        backend: !!(result && result.status === "online"),
+        sheets: sheetsOk,
+        session: !!state.token,
+        checkedAt: formatConnectionTime(new Date()),
+        responseMs: responseMs,
+        error: sheetsOk ? "" : "API hidup, tetapi koneksi Google Sheets belum terkonfirmasi."
+      });
+      setConnectionStatus(sheetsOk ? "online" : "offline", sheetsOk ? "Backend Online" : "Backend Partial");
+      return result;
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      updateConnectionDetailUI({
+        frontend: true,
+        api: false,
+        backend: false,
+        sheets: false,
+        session: !!state.token,
+        checkedAt: formatConnectionTime(new Date()),
+        responseMs: Math.round(performance.now() - startedAt),
+        error: message
+      });
+      setConnectionStatus("offline", "Backend Offline");
+      if (!silent) console.error("[KAS RT] Health check gagal:", err);
+      return null;
+    }
+  }
+
+  function openConnectionStatus() {
+    openModal("modalConnectionStatus");
+    checkBackendHealth(true);
+  }
+
   document.addEventListener("DOMContentLoaded", function() {
     initBulanCheckboxes();
     restoreSession();
     updateAuthUI();
+    checkBackendHealth(true);
     loadData();
+    if (connectionCheckTimer) clearInterval(connectionCheckTimer);
+    connectionCheckTimer = setInterval(() => checkBackendHealth(true), 30000);
   });
 
   function formatRupiah(num) {
