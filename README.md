@@ -114,3 +114,50 @@ Klik Terapkan (Deploy) > Kelola penerapan (Manage deployments).
 Klik ikon pensil (Edit), pilih versi: Versi baru (New version), lalu klik Terapkan (Deploy).
 Lakukan penyegaran halaman (Hard Refresh / Ctrl + F5) pada peramban klien.
 
+
+
+## Struktur Frontend Baru
+
+Repository ini sekarang dipisahkan secara tegas antara **backend Apps Script** dan **frontend GitHub Pages**.
+
+```text
+rtnan/
+├── Code.gs              # Backend: Google Apps Script + Google Sheets
+├── index.html           # Frontend GitHub Pages
+├── css/
+│   └── style.css        # Styling frontend
+└── js/
+    ├── api.js           # Satu-satunya lapisan komunikasi frontend -> GAS
+    └── app.js           # UI, state, rendering, modal, event
+```
+
+### Jalur komunikasi
+
+```text
+GitHub Pages
+    │
+    ├── Public read ────── JSONP GET ────────┐
+    │                                         ▼
+    │                              Google Apps Script
+    │                                         │
+    │                                         ▼
+    │                                   Google Sheets
+    │
+    └── Admin / write ─── Form POST ────────►│
+                               │             │
+                               └─ Cache ──────┘
+                                  ▲
+                                  │
+                           JSONP polling
+```
+
+Frontend **tidak lagi menggunakan** `google.script.run`, iframe bridge, Cloudflare Worker, proxy, atau `fetch()` CORS ke Apps Script.
+
+- `health`, `getDashboardData`, dan `exportPdfLaporan` memakai JSONP karena semuanya merupakan pembacaan publik.
+- Login, logout, perubahan password, input kas, pembayaran iuran, void, warga, anggaran, dan administrasi memakai POST form sederhana.
+- Hasil POST disimpan sementara di `CacheService`, kemudian frontend mengambil hasilnya melalui request polling JSONP.
+- Password dan token admin tidak dimasukkan ke query string POST.
+- Lapisan business logic yang sudah ada di `Code.gs` tetap menjadi sumber kebenaran database.
+
+> Setelah perubahan pada `Code.gs`, deployment Web App Apps Script harus diperbarui ke versi baru. Frontend GitHub Pages tidak perlu diubah URL-nya.
+
