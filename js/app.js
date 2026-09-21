@@ -585,7 +585,7 @@ console.info("[KAS RT] UI build: 20260921-04");
     document.getElementById("labelTotalIuran").innerText = formatRupiah(total);
   }
 
-  function submitBayarIuran(e) {
+  async function submitBayarIuran(e) {
     e.preventDefault();
     const sel = document.getElementById("iuranPilihWarga");
     const idWarga = sel.value;
@@ -640,7 +640,7 @@ console.info("[KAS RT] UI build: 20260921-04");
     openModal("modalVoid");
   }
 
-  function submitVoidTransaksi(e) {
+  async function submitVoidTransaksi(e) {
     e.preventDefault();
     const btn = document.getElementById("btnSubmitVoid");
     btn.disabled = true;
@@ -686,7 +686,7 @@ console.info("[KAS RT] UI build: 20260921-04");
     openModal("modalWarga");
   }
 
-  function submitSimpanWarga(e) {
+  async function submitSimpanWarga(e) {
     e.preventDefault();
     const btn = document.getElementById("btnSubmitWarga");
     btn.disabled = true;
@@ -751,7 +751,7 @@ console.info("[KAS RT] UI build: 20260921-04");
     openModal("modalAnggaran");
   }
 
-  function submitSimpanAnggaran(e) {
+  async function submitSimpanAnggaran(e) {
     e.preventDefault();
     const btn = document.getElementById("btnSubmitAnggaran");
     btn.disabled = true;
