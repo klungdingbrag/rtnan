@@ -1044,16 +1044,37 @@ function doGet(e) {
         : e.parameter;
 
       var result = apiHandleAction(request);
-
-      return apiJsonResponse({
+      var responsePayload = {
         success: result && result.success !== false,
         result: result
-      });
+      };
+
+      // Browser-friendly read-only transport.
+      // JSONP dipakai HANYA untuk endpoint publik yang tidak memerlukan
+      // token/password. Jangan pernah mengirim login atau token melalui JSONP.
+      var prefix = String(e.parameter.prefix || "");
+      var jsonpAllowed = request.action === "health" ||
+                         request.action === "getDashboardData";
+
+      if (prefix && jsonpAllowed && /^[A-Za-z_$][0-9A-Za-z_$\.]*$/.test(prefix)) {
+        return ContentService
+          .createTextOutput(prefix + "(" + JSON.stringify(responsePayload) + ")")
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+
+      return apiJsonResponse(responsePayload);
     } catch (err) {
-      return apiJsonResponse({
+      var errorPayload = {
         success: false,
         message: err && err.message ? err.message : String(err)
-      });
+      };
+      var errorPrefix = String(e.parameter.prefix || "");
+      if (errorPrefix && /^[A-Za-z_$][0-9A-Za-z_$\.]*$/.test(errorPrefix)) {
+        return ContentService
+          .createTextOutput(errorPrefix + "(" + JSON.stringify(errorPayload) + ")")
+          .setMimeType(ContentService.MimeType.JAVASCRIPT);
+      }
+      return apiJsonResponse(errorPayload);
     }
   }
 
