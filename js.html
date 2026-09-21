@@ -1,23 +1,121 @@
 <script>
-  // STATE MANAGEMENT
+  // =============================================================
+  // API CLIENT & SESSION MANAGER
+  // FASE A: Infrastruktur frontend untuk GitHub Pages -> GAS API
+  // =============================================================
+
+  const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzlkObP01zJ_Wge9TJLFcF5CNrrsMtS7SUy7t2ij7N-Udtcz3W1dnFsDG1pD3SDSq62Sg/exec";
+  const SESSION_STORAGE_KEY = "KAS_RT_SESSION";
+
   let state = {
-    user: null, // Berisi data admin jika sudah login
+    user: null,
+    token: null,
     tahun: new Date().getFullYear(),
     dashboardData: null
   };
 
   const BULAN_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
+  async function apiRequest(action, params = {}) {
+    const payload = { action: action, ...params };
+
+    const response = await fetch(GAS_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+      },
+      body: new URLSearchParams({
+        payload: JSON.stringify(payload)
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status + " - " + response.statusText);
+    }
+
+    const json = await response.json();
+
+    if (!json || json.success !== true) {
+      throw new Error(
+        (json && (json.message || (json.result && json.result.message))) ||
+        "API request gagal."
+      );
+    }
+
+    return json.result;
+  }
+
+  function saveSession(result) {
+    if (!result || !result.token || !result.user) {
+      throw new Error("Respons login tidak memiliki token/user yang valid.");
+    }
+
+    state.token = result.token;
+    state.user = result.user;
+
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      token: result.token,
+      user: result.user
+    }));
+  }
+
+  function restoreSession() {
+    const saved = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!saved) return false;
+
+    try {
+      const session = JSON.parse(saved);
+
+      if (!session || !session.token || !session.user) {
+        clearSession();
+        return false;
+      }
+
+      state.token = session.token;
+      state.user = session.user;
+      return true;
+    } catch (e) {
+      clearSession();
+      return false;
+    }
+  }
+
+  function clearSession() {
+    state.token = null;
+    state.user = null;
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+
+  function requireToken() {
+    if (!state.token) {
+      throw new Error("Sesi admin tidak ditemukan. Silakan login kembali.");
+    }
+    return state.token;
+  }
+
+  async function apiLogin(username, password) {
+    return apiRequest("loginAdmin", {
+      username: username,
+      password: password
+    });
+  }
+
+  async function apiLogout() {
+    if (!state.token) return null;
+
+    try {
+      return await apiRequest("logout", {
+        token: state.token
+      });
+    } finally {
+      clearSession();
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", function() {
     initBulanCheckboxes();
-    // Cek sesi login tersimpan di session storage
-    const savedUser = sessionStorage.getItem("KAS_RT_ADMIN");
-    if (savedUser) {
-      try {
-        state.user = JSON.parse(savedUser);
-        updateAuthUI();
-      } catch(e) {}
-    }
+    restoreSession();
+    updateAuthUI();
     loadData();
   });
 
@@ -43,40 +141,53 @@
   }
 
   function updateAuthUI() {
-    const isLoggedIn = !!state.user;
+    const isLoggedIn = !!state.user && !!state.token;
     document.getElementById("roleBadge").classList.toggle("hidden", !isLoggedIn);
     document.getElementById("btnLogin").classList.toggle("hidden", isLoggedIn);
     document.getElementById("userMenu").classList.toggle("hidden", !isLoggedIn);
     document.getElementById("tabBtn-adminPanel").classList.toggle("hidden", !isLoggedIn);
-    
-    // Tombol-tombol aksi admin
+
     document.getElementById("adminKasAction").classList.toggle("hidden", !isLoggedIn);
     document.getElementById("adminIuranAction").classList.toggle("hidden", !isLoggedIn);
     document.getElementById("adminAnggaranAction").classList.toggle("hidden", !isLoggedIn);
     document.getElementById("thAksiKas").classList.toggle("hidden", !isLoggedIn);
 
     if (isLoggedIn) {
-      document.getElementById("labelUser").innerText = state.user.nama_lengkap;
+      document.getElementById("labelUser").innerText =
+        state.user.nama_lengkap || state.user.username || "Admin";
     }
   }
 
   // -------------------------------------------------------------
   // DATA FETCHER (GOOGLE SCRIPT RUN)
   // -------------------------------------------------------------
-  function loadData() {
-    const selTahun = document.getElementById("selectTahun").value;
-    state.tahun = parseInt(selTahun);
-    const isAdmin = !!state.user;
+  async function loadData() {
+    const selTahun = document.getElementById("selectTahun");
+    state.tahun = parseInt(selTahun.value);
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        state.dashboardData = res;
-        renderDashboard();
-      })
-      .withFailureHandler(function(err) {
-        alert("Gagal memuat data: " + err.message);
-      })
-      .getDashboardData(state.tahun, isAdmin);
+    try {
+      let result;
+
+      if (state.token) {
+        result = await apiRequest("getDashboardDataAdmin", {
+          token: state.token,
+          tahun: state.tahun
+        });
+      } else {
+        result = await apiRequest("getDashboardData", {
+          tahun: state.tahun
+        });
+      }
+
+      state.dashboardData = result.data || result;
+      renderDashboard();
+    } catch (err) {
+      if (state.token) {
+        clearSession();
+        updateAuthUI();
+      }
+      alert("Gagal memuat data: " + err.message);
+    }
   }
 
   function renderDashboard() {
@@ -285,7 +396,7 @@
 
   function openModalLogin() { openModal("modalLogin"); }
   
-  function submitLogin(e) {
+  async function submitLogin(e) {
     e.preventDefault();
     const btn = document.getElementById("btnSubmitLogin");
     btn.disabled = true;
@@ -294,32 +405,29 @@
     const u = document.getElementById("loginUsername").value;
     const p = document.getElementById("loginPassword").value;
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        btn.disabled = false;
-        btn.innerText = "Masuk";
-        if (res.success) {
-          state.user = res.user;
-          sessionStorage.setItem("KAS_RT_ADMIN", JSON.stringify(res.user));
-          closeModal("modalLogin");
-          updateAuthUI();
-          loadData();
-          switchTab("adminPanel");
-        } else {
-          alert(res.message);
-        }
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        btn.innerText = "Masuk";
-        alert("Error: " + err.message);
-      })
-      .loginAdmin(u, p);
+    try {
+      const result = await apiLogin(u, p);
+      saveSession(result);
+
+      closeModal("modalLogin");
+      updateAuthUI();
+      await loadData();
+      switchTab("adminPanel");
+    } catch (err) {
+      alert("Login gagal: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "Masuk";
+    }
   }
 
-  function logoutAdmin() {
-    state.user = null;
-    sessionStorage.removeItem("KAS_RT_ADMIN");
+  async function logoutAdmin() {
+    try {
+      await apiLogout();
+    } catch (err) {
+      clearSession();
+    }
+
     updateAuthUI();
     switchTab("kas");
     loadData();
