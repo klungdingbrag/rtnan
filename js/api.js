@@ -176,12 +176,21 @@ function apiPostRelay(payload) {
   payloadInput.name = "payload";
   payloadInput.value = JSON.stringify(payload);
 
+  // Kirim action sebagai field form biasa juga. Ini menjadi fallback penting
+  // karena Apps Script kadang mem-parsing application/x-www-form-urlencoded
+  // berbeda dari payload JSON string.
+  const actionInput = document.createElement("input");
+  actionInput.type = "hidden";
+  actionInput.name = "action";
+  actionInput.value = String(payload.action || "");
+
   const requestIdInput = document.createElement("input");
   requestIdInput.type = "hidden";
   requestIdInput.name = "requestId";
   requestIdInput.value = requestId;
 
   form.appendChild(payloadInput);
+  form.appendChild(actionInput);
   form.appendChild(requestIdInput);
 
   document.body.appendChild(iframe);
