@@ -441,31 +441,35 @@
     openModal("modalKas");
   }
 
-  function submitKasManual(e) {
+  async function submitKasManual(e) {
     e.preventDefault();
+
     const btn = document.getElementById("btnSubmitKas");
     btn.disabled = true;
+    btn.innerText = "Menyimpan...";
 
     const data = {
       jenis: document.getElementById("kasJenis").value,
       kategori: document.getElementById("kasKategori").value,
       nominal: document.getElementById("kasNominal").value,
-      keterangan: document.getElementById("kasKeterangan").value,
-      tgl_transaksi: new Date()
+      keterangan: document.getElementById("kasKeterangan").value
     };
 
-    google.script.run
-      .withSuccessHandler(function(res) {
-        btn.disabled = false;
-        closeModal("modalKas");
-        alert(res.message);
-        loadData();
-      })
-      .withFailureHandler(function(err) {
-        btn.disabled = false;
-        alert("Error: " + err.message);
-      })
-      .simpanKasManual(data, state.user.username);
+    try {
+      const result = await apiRequest("simpanKasManual", {
+        token: requireToken(),
+        data: data
+      });
+
+      closeModal("modalKas");
+      alert(result.message || "Transaksi kas berhasil disimpan.");
+      await loadData();
+    } catch (err) {
+      alert("Gagal menyimpan transaksi kas: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "Simpan Transaksi";
+    }
   }
 
   // BAYAR IURAN MULTI-BULAN
