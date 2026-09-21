@@ -985,6 +985,40 @@ function apiHandleAction(request) {
 var API_RELAY_CACHE_PREFIX = "RT_API_RELAY_";
 var API_RELAY_TTL_SECONDS = 60;
 
+// Session capability khusus frontend eksternal.
+// Nilai ini hanya menyimpan token internal Apps Script di server-side cache.
+// Frontend tidak pernah menerima token internal.
+var API_RELAY_AUTH_PREFIX = "RT_API_RELAY_AUTH_";
+
+function apiRelayAuthCreate(internalToken) {
+  var relaySessionId = Utilities.getUuid().replace(/-/g, "") +
+                       Utilities.getUuid().replace(/-/g, "");
+
+  CacheService.getScriptCache().put(
+    API_RELAY_AUTH_PREFIX + relaySessionId,
+    String(internalToken),
+    API_SESSION_TTL_SECONDS
+  );
+
+  return relaySessionId;
+}
+
+function apiRelayAuthGet(relaySessionId) {
+  if (!relaySessionId) return null;
+
+  return CacheService.getScriptCache().get(
+    API_RELAY_AUTH_PREFIX + String(relaySessionId)
+  );
+}
+
+function apiRelayAuthRemove(relaySessionId) {
+  if (!relaySessionId) return;
+
+  CacheService.getScriptCache().remove(
+    API_RELAY_AUTH_PREFIX + String(relaySessionId)
+  );
+}
+
 function apiRelayStore(requestId, payload) {
   if (!requestId) return;
   CacheService.getScriptCache().put(
@@ -1022,9 +1056,47 @@ function doPost(e) {
     ? String(e.parameter.requestId || "")
     : "";
 
+  var relaySessionId = "";
+
   try {
     var request = apiParseRequest(e);
+
+    // Frontend mengirim "token" yang sebenarnya adalah relay session ID.
+    // Tukarkan menjadi token internal hanya di server.
+    if (
+      request.action !== "loginAdmin" &&
+      request.token
+    ) {
+      relaySessionId = String(request.token);
+      var internalToken = apiRelayAuthGet(relaySessionId);
+
+      if (!internalToken) {
+        throw new Error("Sesi admin tidak valid atau sudah kedaluwarsa. Silakan login kembali.");
+      }
+
+      request.token = internalToken;
+    }
+
     var result = apiHandleAction(request);
+
+    // Login: jangan pernah mengirim token internal ke frontend.
+    // Ganti dengan capability ID yang hanya berlaku selama session.
+    if (request.action === "loginAdmin" && result && result.success && result.token) {
+      var internalLoginToken = result.token;
+      var publicSessionId = apiRelayAuthCreate(internalLoginToken);
+
+      result = {
+        success: true,
+        user: result.user,
+        token: publicSessionId,
+        expires_in: result.expires_in
+      };
+    }
+
+    // Logout: hapus capability frontend setelah token internal dicabut.
+    if (request.action === "logout" && relaySessionId) {
+      apiRelayAuthRemove(relaySessionId);
+    }
 
     var responsePayload = {
       success: result && result.success !== false,
